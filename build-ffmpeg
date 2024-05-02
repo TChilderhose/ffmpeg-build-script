@@ -4,12 +4,12 @@
 # LICENSE: https://github.com/markus-perl/ffmpeg-build-script/blob/master/LICENSE
 
 PROGNAME=$(basename "$0")
-FFMPEG_VERSION=6.1
-SCRIPT_VERSION=1.50
+FFMPEG_VERSION=7.0
+SCRIPT_VERSION=1.51
 CWD=$(pwd)
 PACKAGES="$CWD/packages"
 WORKSPACE="$CWD/workspace"
-CFLAGS="-I$WORKSPACE/include"
+CFLAGS="-I$WORKSPACE/include -Wno-int-conversion"
 LDFLAGS="-L$WORKSPACE/lib"
 LDEXEFLAGS=""
 EXTRALIBS="-ldl -lpthread -lm -lz"
@@ -333,6 +333,10 @@ fi
 
 if build "pkg-config" "0.29.2"; then
   download "https://pkgconfig.freedesktop.org/releases/pkg-config-$CURRENT_PACKAGE_VERSION.tar.gz"
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+  	export XXFLAGS="-Wno-int-conversion" # pkg-config 0.29.2 has a warning that is treated as an error
+  	export CFLAGS="-Wno-error=int-conversion"
+  fi
   execute ./configure --silent --prefix="${WORKSPACE}" --with-pc-path="${WORKSPACE}"/lib/pkgconfig --with-internal-glib
   execute make -j $MJOBS
   execute make install
@@ -486,7 +490,7 @@ if command_exists "python3"; then
   fi
 fi
 
-if build "svtav1" "1.7.0"; then
+if build "svtav1" "2.0.0"; then
   # Last known working commit which passed CI Tests from HEAD branch
   download "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v$CURRENT_PACKAGE_VERSION/SVT-AV1-v$CURRENT_PACKAGE_VERSION.tar.gz" "svtav1-$CURRENT_PACKAGE_VERSION.tar.gz"
   cd "${PACKAGES}"/svtav1-$CURRENT_PACKAGE_VERSION//Build/linux || exit
@@ -633,7 +637,7 @@ if $NONFREE_AND_GPL; then
   CONFIGURE_OPTIONS+=("--enable-libvidstab")
 fi
 
-if build "av1" "7b5f665"; then
+if build "av1" "6cab58c3925e0f4138e15a4ed510161ea83b6db1"; then
   # libaom bcfe6fb == v3.5.0
   download "https://aomedia.googlesource.com/aom/+archive/$CURRENT_PACKAGE_VERSION.tar.gz" "av1.tar.gz" "av1"
   make_dir "$PACKAGES"/aom_build
@@ -761,15 +765,18 @@ if build "libogg" "1.3.5"; then
   build_done "libogg" $CURRENT_PACKAGE_VERSION
 fi
 
-if build "libvorbis" "1.3.7"; then
-  download "https://ftp.osuosl.org/pub/xiph/releases/vorbis/libvorbis-$CURRENT_PACKAGE_VERSION.tar.gz"
-  execute ./configure --prefix="${WORKSPACE}" --with-ogg-libraries="${WORKSPACE}"/lib --with-ogg-includes="${WORKSPACE}"/include/ --enable-static --disable-shared --disable-oggtest
-  execute make -j $MJOBS
-  execute make install
+if [[ "$OSTYPE" != "darwin"* ]]; then
+  if build "libvorbis" "1.3.7"; then
+    download "https://ftp.osuosl.org/pub/xiph/releases/vorbis/libvorbis-$CURRENT_PACKAGE_VERSION.tar.gz"
+    execute ./configure --prefix="${WORKSPACE}" --with-ogg-libraries="${WORKSPACE}"/lib --with-ogg-includes="${WORKSPACE}"/include/ --enable-static --disable-shared --disable-oggtest --disable-silent-rules --disable-dependency-tracking
 
-  build_done "libvorbis" $CURRENT_PACKAGE_VERSION
+    execute make -j $MJOBS
+    execute make install
+
+    build_done "libvorbis" $CURRENT_PACKAGE_VERSION
+  fi
+  CONFIGURE_OPTIONS+=("--enable-libvorbis")
 fi
-CONFIGURE_OPTIONS+=("--enable-libvorbis")
 
 if build "libtheora" "1.1.1"; then
   download "https://ftp.osuosl.org/pub/xiph/releases/theora/libtheora-$CURRENT_PACKAGE_VERSION.tar.gz"
