@@ -4,8 +4,9 @@
 # LICENSE: https://github.com/markus-perl/ffmpeg-build-script/blob/master/LICENSE
 
 PROGNAME=$(basename "$0")
-FFMPEG_VERSION=8.0
+FFMPEG_VERSION=8.1
 SCRIPT_VERSION=1.58
+
 CWD=$(pwd)
 PACKAGES="$CWD/packages"
 WORKSPACE="$CWD/workspace"
@@ -604,7 +605,7 @@ fi
 
 if $NONFREE_AND_GPL; then
 
-  if build "x264" "b35605ac"; then
+  if build "x264" "0480cb05"; then
     download "https://code.videolan.org/videolan/x264/-/archive/$CURRENT_PACKAGE_VERSION/x264-$CURRENT_PACKAGE_VERSION.tar.gz" "x264-$CURRENT_PACKAGE_VERSION.tar.gz"
     cd "${PACKAGES}"/x264-$CURRENT_PACKAGE_VERSION || exit
 
@@ -1052,9 +1053,10 @@ fi
 ##
 
 if build "vulkan-headers" "1.4.341.0"; then
-  download "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v$CURRENT_PACKAGE_VERSION.tar.gz" "Vulkan-Headers-$CURRENT_PACKAGE_VERSION.tar.gz"
+  download "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/vulkan-sdk-$CURRENT_PACKAGE_VERSION.tar.gz" "Vulkan-Headers-$CURRENT_PACKAGE_VERSION.tar.gz"
   execute cmake -DCMAKE_INSTALL_PREFIX="${WORKSPACE}" -B build/
-  execute cmake --install build --prefix "${WORKSPACE}"
+  cd build/ || exit
+  execute make install
   build_done "vulkan-headers" $CURRENT_PACKAGE_VERSION
 fi
 CONFIGURE_OPTIONS+=("--enable-vulkan")
