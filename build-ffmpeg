@@ -481,7 +481,7 @@ else
     build_done "gmp" $CURRENT_PACKAGE_VERSION
   fi
 
-  if build "nettle" "4.0"; then
+  if build "nettle" "3.10.2"; then
     download "https://ftpmirror.gnu.org/gnu/nettle/nettle-$CURRENT_PACKAGE_VERSION.tar.gz"
     execute ./configure --prefix="${WORKSPACE}" --disable-shared --enable-static --disable-openssl --disable-documentation --libdir="${WORKSPACE}"/lib CPPFLAGS="${CFLAGS}" LDFLAGS="${LDFLAGS}"
     execute make -j $MJOBS
