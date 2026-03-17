@@ -23,6 +23,67 @@ MANPAGES=1
 CURRENT_PACKAGE_VERSION=0
 
 
+# Version comparison function
+# Returns: 0 if v1 >= v2, 1 otherwise
+version_gte() {
+    local ver1="$1"
+    local ver2="$2"
+
+    # Handle empty/invalid inputs
+    if [[ -z "$ver1" || -z "$ver2" ]]; then
+        return 1
+    fi
+
+    # Split versions into components
+    local IFS='.'
+    read -ra V1 <<< "$ver1"
+    read -ra V2 <<< "$ver2"
+
+    local max_len=${#V1[@]}
+    [[ ${#V2[@]} -gt $max_len ]] && max_len=${#V2[@]}
+
+    for ((i=0; i<max_len; i++)); do
+        local n1="${V1[i]:-0}"
+        local n2="${V2[i]:-0}"
+
+        # Strip pre-release suffixes for comparison (e.g., "a1", "rc1")
+        n1="${n1%%[a-z]*}"
+        n2="${n2%%[a-z]*}"
+
+        # Compare numeric portions
+        if (( n1 > n2 )); then
+            return 0
+        elif (( n1 < n2 )); then
+            return 1
+        fi
+
+        # Handle suffixes (release candidates, pre-releases)
+        if [[ "$n1" == *[a-z]* && "$n2" != *[a-z]* ]]; then
+            return 1  # n1 has suffix, so it's less than stable n2
+        elif [[ "$n2" == *[a-z]* && "$n1" != *[a-z]* ]]; then
+            return 0  # n2 has suffix, so n1 is greater
+        fi
+
+        # Strip leading zeros and compare remaining parts
+        n1="${n1#0}" || n1=0
+        n2="${n2#0}" || n2=0
+    done
+
+    return 0  # Versions are equal or unknown
+}
+
+# Check if version meets minimum requirement (v >= min)
+version_satisfies() {
+    local current="$1"
+    local minimum="$2"
+
+    if ! version_gte "$current" "$minimum"; then
+        return 1
+    fi
+
+    return 0
+}
+
 command_exists() {
   if ! [[ -x $(command -v "$1") ]]; then
     return 1
@@ -964,6 +1025,7 @@ if build "libjxl" "0.11.2"; then
   build_done "libjxl" $CURRENT_PACKAGE_VERSION
 fi
 CONFIGURE_OPTIONS+=("--enable-libjxl")
+EXTRALIBS="${EXTRALIBS} -llcms2"
 
 if build "libwebp" "1.6.0"; then
   # libwebp can fail to compile on Ubuntu if these flags were left set to CFLAGS
