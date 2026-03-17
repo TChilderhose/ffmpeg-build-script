@@ -168,7 +168,11 @@ execute() {
 }
 
 cmake() {
-  command cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 "$@"
+  if [[ "$1" == "--build" ]]; then
+    command cmake "$@"
+  else
+    command cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 "$@"
+  fi
 }
 
 
