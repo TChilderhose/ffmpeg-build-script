@@ -8,7 +8,9 @@ CWD=$(pwd)
 PACKAGES="$CWD/packages"
 WORKSPACE="$CWD/workspace"
 # shellcheck disable=SC2034 # $CFLAGS is read by later fragments
-CFLAGS="-I$WORKSPACE/include -Wno-int-conversion"
+CFLAGS="-I$WORKSPACE/include -Wno-int-conversion -O2 -march=native"
+# shellcheck disable=SC2034 # $CXXFLAGS is read by later fragments
+CXXFLAGS="-O2 -march=native"
 # shellcheck disable=SC2034 # $LDFLAGS is read by later fragments
 LDFLAGS="-L$WORKSPACE/lib"
 # shellcheck disable=SC2034 # $LDEXEFLAGS is read by later fragments
