@@ -164,39 +164,119 @@ apply_inline_patch() {
 
 download() {
     # download url [filename[dirname]]
-
+    # download url1[|sha256] url2[|sha256] ... [filename[dirname]]
     DOWNLOAD_PATH="$PACKAGES"
-    DOWNLOAD_FILE="${2:-"${1##*/}"}"
+    DOWNLOAD_URLS=()
+    DOWNLOAD_SHAS=()
+    DOWNLOAD_SHA_EXPLICIT=()
+    DOWNLOAD_FILE=""
+    DOWNLOAD_DIR=""
+
+    for ARG in "$@"; do
+        case "$ARG" in
+        http://* | https://* | ftp://*)
+            DOWNLOAD_URLS+=("${ARG%%|*}")
+            if [[ "$ARG" == *"|"* ]]; then
+                DOWNLOAD_SHAS+=("${ARG#*|}")
+                DOWNLOAD_SHA_EXPLICIT+=(1)
+            else
+                DOWNLOAD_SHAS+=("")
+                DOWNLOAD_SHA_EXPLICIT+=(0)
+            fi
+            ;;
+        *)
+            if [ -z "$DOWNLOAD_FILE" ]; then
+                DOWNLOAD_FILE="$ARG"
+            elif [ -z "$DOWNLOAD_DIR" ]; then
+                DOWNLOAD_DIR="$ARG"
+            fi
+            ;;
+        esac
+    done
+
+    if [ "${#DOWNLOAD_URLS[@]}" -eq 0 ]; then
+        echo "No download URL supplied." >&2
+        exit 1
+    fi
+
+    if [ -z "$DOWNLOAD_FILE" ]; then
+        DOWNLOAD_FILE="${DOWNLOAD_URLS[0]##*/}"
+    fi
 
     if [[ "$DOWNLOAD_FILE" =~ tar. ]]; then
         TARGETDIR="${DOWNLOAD_FILE%.*}"
-        TARGETDIR="${3:-"${TARGETDIR%.*}"}"
+        TARGETDIR="${DOWNLOAD_DIR:-"${TARGETDIR%.*}"}"
     else
-        TARGETDIR="${3:-"${DOWNLOAD_FILE%.*}"}"
+        TARGETDIR="${DOWNLOAD_DIR:-"${DOWNLOAD_FILE%.*}"}"
     fi
 
-    # The expected checksum is keyed off the package currently being built, which
-    # build() records in CURRENT_PACKAGE_NAME. An unset or empty checksum element
-    # means the package is not pinned yet and verification is skipped.
+    # A source-specific checksum takes precedence. Plain URLs use the package
+    # checksum, which keeps the existing single-checksum API unchanged.
     DOWNLOAD_SHA_VAR=$(package_sha_var "$CURRENT_PACKAGE_NAME")
-    DOWNLOAD_SHA="${!DOWNLOAD_SHA_VAR}"
+    DOWNLOAD_PACKAGE_SHA="${!DOWNLOAD_SHA_VAR}"
 
-    if [ ! -f "$DOWNLOAD_PATH/$DOWNLOAD_FILE" ] || [ ! -s "$DOWNLOAD_PATH/$DOWNLOAD_FILE" ]; then
-        echo "Downloading $1 as $DOWNLOAD_FILE"
-
-        if ! download_with_retries "$1" "$DOWNLOAD_PATH/$DOWNLOAD_FILE" "$DOWNLOAD_SHA"; then
-            echo "Failed to download $1 after $((DOWNLOAD_MAX_RETRIES + 1)) attempts."
-            exit 1
-        fi
-
-        echo "... Done"
-    else
+    DOWNLOAD_FILE_NEEDS_DOWNLOAD=0
+    if [ -f "$DOWNLOAD_PATH/$DOWNLOAD_FILE" ] && [ -s "$DOWNLOAD_PATH/$DOWNLOAD_FILE" ]; then
         echo "$DOWNLOAD_FILE has already been downloaded and is not empty."
         # A cached file is never deleted automatically: it may be a deliberately
         # placed local copy, and removing it would also destroy the evidence.
-        if ! verify_checksum "$DOWNLOAD_PATH/$DOWNLOAD_FILE" "$DOWNLOAD_SHA"; then
+        DOWNLOAD_CACHE_VALID=0
+        DOWNLOAD_CACHE_SHA_AVAILABLE=0
+        for DOWNLOAD_INDEX in "${!DOWNLOAD_URLS[@]}"; do
+            if [ "${DOWNLOAD_SHA_EXPLICIT[$DOWNLOAD_INDEX]}" -eq 1 ]; then
+                DOWNLOAD_SHA="${DOWNLOAD_SHAS[$DOWNLOAD_INDEX]}"
+            else
+                DOWNLOAD_SHA="$DOWNLOAD_PACKAGE_SHA"
+            fi
+
+            # An unpinned fallback source says nothing about whether a cached file matches the
+            # pinned primary source, so it cannot make the cache "valid" by itself. Only an
+            # actual checksum match counts; when no source has a checksum at all, fall back to
+            # the historical "cached and non-empty is good enough" behaviour below.
+            if [ -z "$DOWNLOAD_SHA" ]; then
+                continue
+            fi
+
+            DOWNLOAD_CACHE_SHA_AVAILABLE=1
+            if verify_checksum "$DOWNLOAD_PATH/$DOWNLOAD_FILE" "$DOWNLOAD_SHA"; then
+                DOWNLOAD_CACHE_VALID=1
+                break
+            fi
+        done
+        if [ "$DOWNLOAD_CACHE_VALID" -ne 1 ] && [ "$DOWNLOAD_CACHE_SHA_AVAILABLE" -eq 0 ]; then
+            DOWNLOAD_CACHE_VALID=1
+        fi
+        if [ "$DOWNLOAD_CACHE_VALID" -ne 1 ]; then
             echo "The cached file $DOWNLOAD_PATH/$DOWNLOAD_FILE is corrupt or does not match the pinned version." >&2
             echo "Delete it and run the build again to download it anew." >&2
+            exit 1
+        fi
+    else
+        DOWNLOAD_FILE_NEEDS_DOWNLOAD=1
+    fi
+
+    if [ "$DOWNLOAD_FILE_NEEDS_DOWNLOAD" -eq 1 ]; then
+        DOWNLOAD_OK=0
+        for DOWNLOAD_INDEX in "${!DOWNLOAD_URLS[@]}"; do
+            DOWNLOAD_URL="${DOWNLOAD_URLS[$DOWNLOAD_INDEX]}"
+            if [ "${DOWNLOAD_SHA_EXPLICIT[$DOWNLOAD_INDEX]}" -eq 1 ]; then
+                DOWNLOAD_SHA="${DOWNLOAD_SHAS[$DOWNLOAD_INDEX]}"
+            else
+                DOWNLOAD_SHA="$DOWNLOAD_PACKAGE_SHA"
+            fi
+            echo "Downloading $DOWNLOAD_URL as $DOWNLOAD_FILE"
+            if download_with_retries "$DOWNLOAD_URL" "$DOWNLOAD_PATH/$DOWNLOAD_FILE" "$DOWNLOAD_SHA"; then
+                DOWNLOAD_OK=1
+                echo "... Done"
+                break
+            fi
+
+            echo "Failed to download $DOWNLOAD_URL after $((DOWNLOAD_MAX_RETRIES + 1)) attempts."
+            rm -f "$DOWNLOAD_PATH/$DOWNLOAD_FILE"
+        done
+
+        if [ "$DOWNLOAD_OK" -ne 1 ]; then
+            echo "Failed to download all configured sources for $DOWNLOAD_FILE."
             exit 1
         fi
     fi
@@ -207,7 +287,7 @@ download() {
         return
     fi
 
-    if [ -n "$3" ]; then
+    if [ -n "$DOWNLOAD_DIR" ]; then
         if ! tar -xvf "$DOWNLOAD_PATH/$DOWNLOAD_FILE" -C "$DOWNLOAD_PATH/$TARGETDIR" 2>/dev/null >/dev/null; then
             echo "Failed to extract $DOWNLOAD_FILE"
             exit 1
@@ -246,6 +326,8 @@ execute() {
         echo "$OUTPUT"
         echo ""
         echo "Failed to Execute $*" >&2
+        # shellcheck disable=SC2034 # read by report_failure() in this fragment
+        LAST_FAILED_COMMAND="$*"
         exit 1
     fi
 }
@@ -369,6 +451,131 @@ cleanup() {
     echo ""
 }
 
+##
+## Build log and failure report
+##
+
+# The state of the log mirror and of the exit handling. Written here and in
+# start_build_logging(), read by stop_build_logging()/on_exit()/report_failure()
+# in this fragment and by the trap lines in the entry point.
+# shellcheck disable=SC2034 # read by report_failure() and stop_build_logging()
+BUILD_LOG=""
+# shellcheck disable=SC2034 # read by stop_build_logging()
+BUILD_LOG_FIFO_DIR=""
+# shellcheck disable=SC2034 # read by stop_build_logging()
+BUILD_TEE_PID=""
+# shellcheck disable=SC2034 # set by the entry point's INT/TERM traps, read by on_exit()
+USER_INTERRUPTED=false
+# shellcheck disable=SC2034 # appended by do_update(), read by on_exit()
+EXIT_CLEANUP_DIRS=""
+
+start_build_logging() {
+    # Mirrors everything the script prints into $CWD/build.log while keeping it
+    # on the terminal: tee holds both ends. A FIFO rather than process
+    # substitution, so stop_build_logging() can drain it deterministically -
+    # "exec > >(tee ...) 2>&1" can lose its last lines, because bash exits
+    # without waiting for the tee behind the redirection and the failure report
+    # would be exactly those last lines.
+    BUILD_LOG="$CWD/build.log"
+    BUILD_LOG_FIFO_DIR=$(mktemp -d) || return 0
+    if ! mkfifo "$BUILD_LOG_FIFO_DIR/log.fifo"; then
+        rm -rf "$BUILD_LOG_FIFO_DIR"
+        BUILD_LOG_FIFO_DIR=""
+        return 0
+    fi
+    tee "$BUILD_LOG" <"$BUILD_LOG_FIFO_DIR/log.fifo" &
+    BUILD_TEE_PID=$!
+    exec >"$BUILD_LOG_FIFO_DIR/log.fifo" 2>&1
+}
+
+stop_build_logging() {
+    if [ -z "$BUILD_TEE_PID" ]; then
+        return
+    fi
+    # Closing both fds ends tee's input, so waiting for it guarantees the log
+    # holds everything up to and including what was printed just before this.
+    exec >&- 2>&-
+    wait "$BUILD_TEE_PID"
+    rm -rf "$BUILD_LOG_FIFO_DIR"
+    BUILD_TEE_PID=""
+}
+
+# One line naming the OS release, for the copy-paste block in report_failure().
+os_display_name() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        printf 'macOS %s' "$(sw_vers -productVersion 2>/dev/null)"
+    elif [ -r "/etc/os-release" ]; then
+        sed -n 's/^PRETTY_NAME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/os-release | head -n 1
+    else
+        uname -s
+    fi
+}
+
+report_failure() {
+    echo ""
+    echo "========================================================================"
+    echo "The build failed."
+    if [ -n "$CURRENT_PACKAGE_NAME" ]; then
+        echo "Package being built: $CURRENT_PACKAGE_NAME $CURRENT_PACKAGE_VERSION"
+    fi
+    if [ -n "$LAST_FAILED_COMMAND" ]; then
+        echo "Failed step: $LAST_FAILED_COMMAND"
+    fi
+    echo ""
+    echo "Please open an issue at https://github.com/markus-perl/ffmpeg-build-script/issues"
+    echo "and include everything between the lines below plus the full build log:"
+    echo "$BUILD_LOG"
+    echo ""
+    echo "-------------------- copy from here --------------------"
+    echo "script:   ffmpeg-build-script v$SCRIPT_VERSION (FFmpeg $FFMPEG_VERSION)"
+    echo "invoked:  $PROGNAME $INVOCATION_ARGS"
+    echo "os:       $(os_display_name)"
+    echo "kernel:   $(uname -sr)"
+    echo "arch:     $(uname -m)"
+    echo "compiler: $("${CC:-cc}" --version 2>/dev/null | head -n 1)"
+    echo "jobs:     $MJOBS"
+    if $NONFREE_AND_GPL; then
+        echo "license:  GPL and non-free"
+    else
+        echo "license:  LGPL (default)"
+    fi
+    echo "tls:      $TLS_BACKEND"
+    if [ -n "$WHISPER_BACKEND" ]; then
+        echo "whisper:  $WHISPER_BACKEND"
+    fi
+    if [ -n "$LDEXEFLAGS" ]; then
+        echo "mode:     full static"
+    fi
+    echo "--------------------- copy to here ---------------------"
+}
+
+# Single EXIT handler for every way the script can end: normal completion, a
+# failed build step, Ctrl+C. The entry point installs it with "trap on_exit
+# EXIT", so no fragment may set its own EXIT trap afterwards - it would replace
+# this one, losing the .git restore and the log teardown. do_update() hands its
+# temp dir to EXIT_CLEANUP_DIRS for the same reason.
+on_exit() {
+    EXIT_STATUS=$?
+    # Restore .git even when the build fails and exits early; see 95-ffmpeg.sh.
+    if [ -d "$CWD/.git.bak" ]; then
+        mv "$CWD/.git.bak" "$CWD/.git"
+    fi
+    # shellcheck disable=SC2086 # deliberate word splitting over whitespace-separated dirs
+    for EXIT_DIR in $EXIT_CLEANUP_DIRS; do
+        rm -rf "$EXIT_DIR"
+    done
+    # The bug-report hint is only for genuine failures of a supported build:
+    # an interrupted run was stopped deliberately, and an unpinned FFmpeg
+    # (snapshot, --ffmpeg-version) is a combination the pinned library versions
+    # were never tested against - 40-cli.sh already tells those users to retry
+    # with the pinned version before reporting anything.
+    if [ "$EXIT_STATUS" -ne 0 ] && ! $USER_INTERRUPTED && ! $FFMPEG_UNPINNED; then
+        report_failure
+    fi
+    stop_build_logging
+    return "$EXIT_STATUS"
+}
+
 # Is $1 an older version than $2? Used only to recognize a tree that is ahead of
 # the newest release, so a wrong answer costs a warning and nothing else. Hosts
 # whose sort has no -V fall back to "not older", which reduces the check to the
@@ -458,7 +665,11 @@ do_update() {
         return 1
     fi
 
-    trap 'rm -rf "$UPDATE_TMP"' EXIT
+    # Removed by on_exit() rather than through a trap of its own: setting an
+    # EXIT trap here would replace the entry point's, losing the .git restore,
+    # the failure report and the log teardown.
+    # shellcheck disable=SC2034 # read by on_exit() in this fragment
+    EXIT_CLEANUP_DIRS+=" $UPDATE_TMP"
 
     if ! curl -fsSL -o "$UPDATE_TMP/release.tar.gz" "$UPDATE_REPO/archive/refs/tags/$UPDATE_TAG.tar.gz"; then
         echo "Failed to download $UPDATE_REPO/archive/refs/tags/$UPDATE_TAG.tar.gz" >&2
