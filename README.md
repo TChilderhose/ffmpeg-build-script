@@ -1,6 +1,6 @@
 [![build test](https://github.com/markus-perl/ffmpeg-build-script/workflows/build%20test/badge.svg)](https://github.com/markus-perl/ffmpeg-build-script/actions)
 
-![FFmpeg build script](https://raw.github.com/markus-perl/ffmpeg-build-script/master/ffmpeg-build-script.png)
+![FFmpeg build script](https://raw.github.com/markus-perl/ffmpeg-build-script/main/ffmpeg-build-script.png)
 
 ### If you like the script, please "★" this project!
 
@@ -56,7 +56,7 @@ Optional, for extra features:
 
 | Tool | What you get | Install |
 | --- | --- | --- |
-| `python3`, `meson`, `ninja` | dav1d (fast AV1 decoding), LV2 filters, harfbuzz text shaping | `brew install python meson ninja` |
+| `python3`, `meson`, `ninja` | dav1d (fast AV1 decoding), LV2 filters | `brew install python meson ninja` |
 | `cargo` / `rust` | rav1e (AV1 encoding) | see [rust installation](https://doc.rust-lang.org/cargo/getting-started/installation.html) |
 
 ### 2. Build
@@ -65,16 +65,16 @@ Fastest way — download and build in one command:
 
 ```bash
 # Without GPL and non-free codecs, see https://ffmpeg.org/legal.html
-$ bash <(curl -s "https://raw.githubusercontent.com/markus-perl/ffmpeg-build-script/master/web-install.sh")
+$ bash <(curl -s "https://raw.githubusercontent.com/markus-perl/ffmpeg-build-script/main/web-install.sh")
 
 # With GPL and non-free codecs, see https://ffmpeg.org/legal.html
-$ bash <(curl -s "https://raw.githubusercontent.com/markus-perl/ffmpeg-build-script/master/web-install-gpl-and-non-free.sh")
+$ bash <(curl -s "https://raw.githubusercontent.com/markus-perl/ffmpeg-build-script/main/web-install-gpl-and-non-free.sh")
 ```
 
 The installer creates an `ffmpeg-build` directory, downloads the source archive of the latest
 release into it, extracts it and runs `build-ffmpeg --build` — the GPL and non-free variant
 appends `--enable-gpl-and-non-free`. To build a different revision, set
-`FFMPEG_BUILD_SCRIPT_REF` to a release tag (`v9.0.3`) or a branch name (`master`, for
+`FFMPEG_BUILD_SCRIPT_REF` to a release tag (`v9.0.3`) or a branch name (`main`, for
 unreleased work). It must be a single tag or branch name; slashes are rejected.
 
 Or clone the repository and build from it:
@@ -128,7 +128,7 @@ and compiled by the script.
 
 | Tool | What is lost if missing |
 | --- | --- |
-| `python3` | meson/ninja bootstrap → no dav1d (AV1 decoding), no LV2 filters, no harfbuzz |
+| `python3` | meson/ninja bootstrap → no dav1d (AV1 decoding), no LV2 filters |
 | `meson`, `ninja` | same as above. Installing them from your package manager is more reliable than the script's `pip` fallback (see the [PEP 668 note](#meson-fails-with-externally-managed-environment)) |
 | `cargo` / `rust` | no rav1e (AV1 encoding) |
 | X11 development headers | `ffplay`. SDL is compiled from source and picks up whatever X11 headers it finds — a partial set makes the SDL build fail (`X11/extensions/Xext.h: No such file`), and no X11 at all leaves `ffplay` unable to open a video device |
@@ -213,16 +213,16 @@ Fastest way — download and build in one command:
 
 ```bash
 # Without GPL and non-free codecs, see https://ffmpeg.org/legal.html
-$ bash <(curl -s "https://raw.githubusercontent.com/markus-perl/ffmpeg-build-script/master/web-install.sh")
+$ bash <(curl -s "https://raw.githubusercontent.com/markus-perl/ffmpeg-build-script/main/web-install.sh")
 
 # With GPL and non-free codecs, see https://ffmpeg.org/legal.html
-$ bash <(curl -s "https://raw.githubusercontent.com/markus-perl/ffmpeg-build-script/master/web-install-gpl-and-non-free.sh")
+$ bash <(curl -s "https://raw.githubusercontent.com/markus-perl/ffmpeg-build-script/main/web-install-gpl-and-non-free.sh")
 ```
 
 The installer creates an `ffmpeg-build` directory, downloads the source archive of the latest
 release into it, extracts it and runs `build-ffmpeg --build` — the GPL and non-free variant
 appends `--enable-gpl-and-non-free`. To build a different revision, set
-`FFMPEG_BUILD_SCRIPT_REF` to a release tag (`v9.0.3`) or a branch name (`master`, for
+`FFMPEG_BUILD_SCRIPT_REF` to a release tag (`v9.0.3`) or a branch name (`main`, for
 unreleased work). It must be a single tag or branch name; slashes are rejected.
 
 Or clone the repository and build from it:
@@ -346,12 +346,15 @@ Options:
       --enable-gpl-and-non-free  Enable GPL and non-free codecs  - https://ffmpeg.org/legal.html
       --disable=NAME[,NAME...]   Do not build these libraries. Repeatable.
                                  --list-packages shows every name that can be disabled.
-      --ffmpeg-version=VERSION   Build this FFmpeg release instead of the pinned 9.0.1.
-                                 VERSION is a release number (e.g. 9.0.1), "latest",
+      --ffmpeg-version=VERSION   Build this FFmpeg release instead of the latest 9.x release.
+                                 VERSION is a release number (e.g. 9.0.2), "latest",
                                  or "snapshot" for the current FFmpeg master.
-                                 Release versions are looked up at https://ffmpeg.org/releases/.
-                                 Only the pinned version is verified against a checksum
-                                 and tested against the library versions this script builds.
+                                 Default: the latest 9.x release, looked up at
+                                 https://ffmpeg.org/releases/ at the start of every build.
+                                 "latest" here is the newest release of any major version,
+                                 not just 9.x. No release is checksum-verified;
+                                 the library versions this script builds were chosen and
+                                 tested against 9.x.
       --tls=BACKEND              TLS backend for https/tls/dtls: gnutls or openssl
                                  Default: openssl with --enable-gpl-and-non-free, gnutls otherwise.
       --whisper=BACKEND          Build whisper.cpp for the af_whisper filter (speech to text).
@@ -375,28 +378,38 @@ rebuilt automatically on the next build.
 
 ## Choosing the FFmpeg version
 
-The script builds one pinned FFmpeg release, currently 9.0.1, whose tarball is verified
-against a checksum. `--ffmpeg-version` overrides that:
+The script tracks a major FFmpeg release line rather than one pinned release: it currently
+supports 9.x, set as `FFMPEG_MAJOR_VERSION` in `src/00-header.sh`. Every build starts by
+looking up the highest 9.x release listed at <https://ffmpeg.org/releases/> and building
+that, so a `9.0.3` released after this script's last update is picked up automatically,
+with no script change needed. The version it found is printed before the build starts:
+
+```
+Looking up the latest FFmpeg 9.x release on https://ffmpeg.org/releases/ ...
+Building FFmpeg 9.0.2, the latest 9.x release.
+```
+
+`--ffmpeg-version` overrides that lookup:
 
 ```bash
-./build-ffmpeg --build --ffmpeg-version=latest   # newest release on ffmpeg.org
+./build-ffmpeg --build --ffmpeg-version=latest   # newest release on ffmpeg.org, any major version
 ./build-ffmpeg --build --ffmpeg-version=8.1.2    # a specific release
 ./build-ffmpeg --build --ffmpeg-version=snapshot # current FFmpeg master
 ```
 
-`latest` reads the release index at <https://ffmpeg.org/releases/> and takes the highest
-version listed there. `snapshot` downloads the current nightly archive of FFmpeg's master
-branch from <https://ffmpeg.org/releases/ffmpeg-snapshot.tar.bz2>. The GitHub mirror is not
-consulted: it publishes no GitHub releases, so there is nothing there to ask for.
+`latest` here is unrestricted - it takes the highest version listed at
+<https://ffmpeg.org/releases/> regardless of major version, unlike the default which stays
+on 9.x. `snapshot` downloads the current nightly archive of FFmpeg's master branch from
+<https://ffmpeg.org/releases/ffmpeg-snapshot.tar.bz2>. The GitHub mirror is not consulted
+for any of this: it publishes no GitHub releases, so there is nothing there to ask for.
 
-Two things are given up by overriding it. The checksum in `src/10-versions.sh` describes
-the pinned tarball and no other, so an overridden version is downloaded without an
-integrity check; and the library versions this script pins were picked to build against the
-pinned FFmpeg, so an older, newer or snapshot version may not configure or compile. The
-script says so before it starts, and a build that fails this way is worth retrying without
-the flag before reporting it. A release version that does not exist is rejected up front
-rather than an hour later, when the FFmpeg download happens. The snapshot archive changes
-over time and is therefore never checksum-verified.
+No FFmpeg release is checksum-verified, pinned default or explicit override alike -
+`src/10-versions.sh` carries no checksum for it, since there is no longer one fixed tarball
+to describe. The library versions this script pins were picked and tested against 9.x, so
+an explicit override to a different major version, or to `snapshot`, may not configure or
+compile; the script says so before it starts, and a build that fails this way is worth
+retrying without `--ffmpeg-version` before reporting it. A release version that does not
+exist is rejected up front rather than an hour later, when the FFmpeg download happens.
 
 ## Leaving libraries out
 
@@ -516,6 +529,17 @@ exits without building. Your downloaded tarballs in `packages/` and the built li
 `workspace/` are left alone, so the next build only redoes the packages whose version
 changed. If you cloned the repository with git, use `git pull` instead — the update refuses
 to overwrite a working tree.
+
+Every `--build` also checks in passing whether a newer release exists, and says so up front:
+
+```
+A newer version of ffmpeg-build-script is available: v9.0.11 (you have v9.0.10).
+Update with: build-ffmpeg --update
+```
+
+(or `git pull` for a git checkout). This check is best-effort: a network hiccup skips it
+silently rather than failing the build, and `--list-packages`/`--help`/`--update` itself
+never trigger it.
 
 ---
 

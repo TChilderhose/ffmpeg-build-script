@@ -115,15 +115,17 @@ order, and it has to keep running everywhere it currently runs:
 - **Bump `SCRIPT_VERSION`** (in `src/00-header.sh`) when you change build behaviour — but only
   if it is not already ahead of the latest release tag. It names the *next* release, not the
   current commit, so a batch of unreleased commits shares one bump. Check `git tag | tail -1`
-  first: bumping again while master is already ahead skips a version, and the release workflow
+  first: bumping again while main is already ahead skips a version, and the release workflow
   refuses to publish a tag that does not match `SCRIPT_VERSION`.
 
-  Since 9.0.3 the version tracks the FFmpeg release it builds: `<ffmpeg major>.<ffmpeg
-  minor>.<n>`, where `n` counts the releases of this script against that FFmpeg version. So
-  9.0.3 is the third release building FFmpeg 9.0, and moving to FFmpeg 9.1 would start again
-  at 9.1.1. `FFMPEG_VERSION` sits directly above `SCRIPT_VERSION` in the same fragment, so
-  the two are easy to keep aligned. The older 1.x numbering ran independently of FFmpeg and
-  said nothing about what you were getting.
+  Since 9.0.3 the version has tracked the FFmpeg release line the script builds. Before this
+  script tracked one pinned FFmpeg release, and the middle digit named that release's minor
+  version. It now tracks a major version instead - `FFMPEG_MAJOR_VERSION` in
+  `src/00-header.sh`, resolved to its newest release at the start of every build - so a new
+  FFmpeg minor or patch release no longer requires a `SCRIPT_VERSION` bump by itself. Bump it
+  when `FFMPEG_MAJOR_VERSION` changes (e.g. moving from 9.x to 10.x) or when you change other
+  build behaviour. The older 1.x numbering ran independently of FFmpeg and said nothing about
+  what you were getting.
 
 [AGENTS.md](AGENTS.md) documents the internals in more depth — the anatomy of a package
 function, the license and capability gates, the build order array, and the traps that are easy
@@ -194,7 +196,7 @@ modes build different TLS stacks and are not interchangeable.
 
 ## Pull requests
 
-- Branch off `master` and target `master`.
+- Branch off `main` and target `main`.
 - One logical change per pull request.
 - Say in the description **which systems you built on** and paste the relevant part of
   `-buildconf` when you added or changed a feature.
